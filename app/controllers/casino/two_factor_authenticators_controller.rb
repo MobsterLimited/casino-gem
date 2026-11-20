@@ -6,6 +6,7 @@ class CASino::TwoFactorAuthenticatorsController < CASino::ApplicationController
   include CASino::TwoFactorAuthenticatorProcessor
 
   before_action :ensure_signed_in
+  before_action :disable_caching
 
   def new
     return redirect_to sessions_path if current_user.active_two_factor_authenticator
@@ -17,9 +18,12 @@ class CASino::TwoFactorAuthenticatorsController < CASino::ApplicationController
     @two_factor_authenticator = current_user.two_factor_authenticators.where(id: params[:id]).first
     if @two_factor_authenticator && TwoFactorOtpVerifier.verify!(current_user, @two_factor_authenticator, params[:otp], allow_inactive: true)
       current_user.with_lock do
+        current_ticket = current_ticket_granting_ticket
+        current_user.ticket_granting_tickets.where.not(id: current_ticket.id).destroy_all
+        current_ticket.service_tickets.destroy_all
         @two_factor_authenticator.update!(active: true)
         update_two_factor_enabled(true)
-        current_ticket_granting_ticket.update!(two_factor_verified_at: Time.current)
+        current_ticket.update!(two_factor_verified_at: Time.current)
       end
       flash[:notice] = I18n.t('two_factor_authenticators.successfully_activated')
       redirect_to sessions_path
@@ -49,5 +53,10 @@ class CASino::TwoFactorAuthenticatorsController < CASino::ApplicationController
     attributes = (current_user.extra_attributes || {}).merge('two_factor_enabled' => enabled)
     current_user.update!(extra_attributes: attributes)
     User.where(email: current_user.username).update_all(two_factor_enabled: enabled)
+  end
+
+  def disable_caching
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Referrer-Policy'] = 'no-referrer'
   end
 end
