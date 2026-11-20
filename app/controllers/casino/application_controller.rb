@@ -4,6 +4,7 @@ class CASino::ApplicationController < ::ApplicationController
   include ApplicationHelper
 
   layout 'application'
+  protect_from_forgery with: :exception
 
   unless Rails.env.development?
     rescue_from ActionView::MissingTemplate, with: :missing_template

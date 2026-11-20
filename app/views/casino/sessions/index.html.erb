@@ -18,7 +18,12 @@
       <% if @two_factor_authenticators.blank? %>
         <%= t('two_factor_authenticators.disabled') %> - <%= link_to t('two_factor_authenticators.enable'), new_two_factor_authenticator_path %>
       <% else %>
-        <%= t('two_factor_authenticators.enabled') %> - <%= button_to t('two_factor_authenticators.disable'), two_factor_authenticator_path(@two_factor_authenticators.first.id), method: :delete %>
+        <%= t('two_factor_authenticators.enabled') %>
+        <%= form_tag(two_factor_authenticator_path(@two_factor_authenticators.first.id), method: :delete) do %>
+          <%= label_tag :otp, t('two_factor_authenticators.disable_code') %>
+          <%= text_field_tag :otp, nil, maxlength: 6, autocomplete: 'one-time-code' %>
+          <%= button_tag t('two_factor_authenticators.disable'), class: 'button' %>
+        <% end %>
       <% end %>
 
       <h3><%= t('sessions.your_active_sessions') %></h3>

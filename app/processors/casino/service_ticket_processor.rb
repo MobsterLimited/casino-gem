@@ -13,6 +13,9 @@ module CASino::ServiceTicketProcessor
   end
 
   def acquire_service_ticket(ticket_granting_ticket, service, options = {})
+    current_ticket = CASino::TicketGrantingTicket.find_by(id: ticket_granting_ticket.id)
+    raise ServiceNotAllowedError, 'Two-factor authentication is required' unless current_ticket&.two_factor_authenticated?
+
     service_url = clean_service_url(service)
     unless service_allowed?(service_url)
       message = "#{service_url} is not in the list of allowed URLs"
@@ -49,16 +52,40 @@ module CASino::ServiceTicketProcessor
     validate_ticket_for_service(ticket, service, options).success?
   end
 
+  def two_factor_verified_ticket?(ticket)
+    visited = {}
+    32.times do
+      return false unless ticket && ticket.id
+      identity = [ticket.class.name, ticket.id]
+      return false if visited[identity]
+      visited[identity] = true
+
+      case ticket
+      when CASino::ServiceTicket
+        granting_ticket = CASino::TicketGrantingTicket.find_by(id: ticket.ticket_granting_ticket_id)
+        return !!granting_ticket&.two_factor_authenticated?
+      when CASino::ProxyTicket
+        proxy_grant = CASino::ProxyGrantingTicket.find_by(id: ticket.proxy_granting_ticket_id)
+        ticket = proxy_grant&.granter
+      else
+        return false
+      end
+    end
+    false
+  end
+
   def validate_ticket_for_service(ticket, service, options = {})
     if ticket.nil?
       result = ValidationResult.new 'INVALID_TICKET', 'Invalid validate request: Ticket does not exist', :warn
     else
-      result = validate_existing_ticket_for_service(ticket, service, options)
-      ticket.update_attribute(:consumed, true)
-      Rails.logger.debug "Consumed ticket '#{ticket.ticket}'"
+      ticket.with_lock do
+        result = validate_existing_ticket_for_service(ticket, service, options)
+        ticket.update_attribute(:consumed, true)
+      end
+      Rails.logger.debug 'Consumed service or proxy ticket'
     end
     if result.success?
-      Rails.logger.info "Ticket '#{ticket.ticket}' for service '#{service}' successfully validated"
+      Rails.logger.info 'Service or proxy ticket successfully validated'
     else
       Rails.logger.send(result.error_severity, result.error_message)
     end
@@ -68,14 +95,16 @@ module CASino::ServiceTicketProcessor
   private
   def validate_existing_ticket_for_service(ticket, service, options = {})
     service = clean_service_url(service) if ticket.is_a?(CASino::ServiceTicket)
-    if ticket.consumed?
-      ValidationResult.new 'INVALID_TICKET', "Ticket '#{ticket.ticket}' already consumed", :warn
+    if !two_factor_verified_ticket?(ticket)
+      ValidationResult.new 'INVALID_TICKET', 'Ticket has not completed two-factor authentication', :warn
+    elsif ticket.consumed?
+      ValidationResult.new 'INVALID_TICKET', 'Ticket already consumed', :warn
     elsif ticket.expired?
-      ValidationResult.new 'INVALID_TICKET', "Ticket '#{ticket.ticket}' has expired", :warn
+      ValidationResult.new 'INVALID_TICKET', 'Ticket has expired', :warn
     elsif service != ticket.service
-      ValidationResult.new 'INVALID_SERVICE', "Ticket '#{ticket.ticket}' is not valid for service '#{service}'", :warn
+      ValidationResult.new 'INVALID_SERVICE', 'Ticket is not valid for the requested service', :warn
     elsif options[:renew] && !ticket.issued_from_credentials?
-      ValidationResult.new 'INVALID_TICKET', "Ticket '#{ticket.ticket}' was not issued from credentials but service '#{service}' will only accept a renewed ticket", :info
+      ValidationResult.new 'INVALID_TICKET', 'Service requires a ticket issued from credentials', :info
     else
       ValidationResult.new
     end

@@ -37,6 +37,16 @@ class CASino::TicketGrantingTicket < ActiveRecord::Base
     end
   end
 
+  def two_factor_authenticated?
+    return false if awaiting_two_factor_authentication? || expired? || user.nil?
+
+    has_authenticator = user.active_two_factor_authenticator.present?
+    return false if user.two_factor_enabled? && !has_authenticator
+
+    requires_two_factor = user.two_factor_enabled? || has_authenticator
+    !requires_two_factor || two_factor_verified_at.present?
+  end
+
   def expired?
     if awaiting_two_factor_authentication?
       lifetime = CASino.config.two_factor_authenticator[:timeout]

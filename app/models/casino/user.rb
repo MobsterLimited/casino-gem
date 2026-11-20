@@ -9,4 +9,10 @@ class CASino::User < ActiveRecord::Base
   def active_two_factor_authenticator
     self.two_factor_authenticators.where(active: true).first
   end
+
+  def two_factor_enabled?
+    values = extra_attributes || {}
+    value = values['two_factor_enabled'] || values[:two_factor_enabled]
+    value == true || value.to_s == '1'
+  end
 end

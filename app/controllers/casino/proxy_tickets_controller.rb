@@ -40,7 +40,7 @@ class CASino::ProxyTicketsController < CASino::ApplicationController
 
   def load_proxy_granting_ticket
     @proxy_granting_ticket = CASino::ProxyGrantingTicket.where(ticket: params[:pgt]).first if params[:pgt].present?
-    if @proxy_granting_ticket.nil?
+    if @proxy_granting_ticket.nil? || !two_factor_verified_ticket?(@proxy_granting_ticket.granter)
       build_proxy_response(false,
                            error_code: 'BAD_PGT',
                            error_message: 'PGT not found')

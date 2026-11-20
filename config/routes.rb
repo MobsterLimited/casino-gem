@@ -8,6 +8,8 @@ CASino::Engine.routes.draw do
   post 'login' => 'sessions#create'
   get 'logout' => 'sessions#logout'
   post 'validate_otp' => 'sessions#validate_otp'
+  get 'two_factor_enrollment' => 'two_factor_enrollments#new'
+  post 'two_factor_enrollment/verify' => 'two_factor_enrollments#verify', as: :verify_two_factor_enrollment
 
   resources :login_attempts, only: [:index]
 

@@ -5,7 +5,7 @@ class CASino::SessionsController < CASino::ApplicationController
 
   before_action :validate_login_ticket, only: [:create]
   before_action :ensure_service_allowed, only: [:new, :create]
-  before_action :load_ticket_granting_ticket_from_parameter, only: [:validate_otp]
+  before_action :load_pending_two_factor_ticket, only: [:validate_otp]
   before_action :ensure_signed_in, only: [:index, :destroy]
 
   def index
@@ -53,11 +53,23 @@ class CASino::SessionsController < CASino::ApplicationController
   end
 
   def validate_otp
-    validation_result = validate_one_time_password(params[:otp], @ticket_granting_ticket.user.active_two_factor_authenticator)
-    return flash.now[:error] = I18n.t('validate_otp.invalid_otp') unless validation_result.success?
-    @ticket_granting_ticket.update_attribute(:awaiting_two_factor_authentication, false)
-    set_tgt_cookie(@ticket_granting_ticket)
-    handle_signed_in(@ticket_granting_ticket)
+    user = @ticket_granting_ticket.user
+    verified = false
+    user.with_lock do
+      @ticket_granting_ticket.reload
+      if @ticket_granting_ticket.awaiting_two_factor_authentication? && !@ticket_granting_ticket.expired? &&
+         ::TwoFactorOtpVerifier.verify!(user, user.active_two_factor_authenticator, params[:otp])
+        @ticket_granting_ticket.update!(awaiting_two_factor_authentication: false, two_factor_verified_at: Time.current)
+        verified = true
+      end
+    end
+
+    unless verified
+      flash.now[:error] = I18n.t('validate_otp.invalid_otp')
+      return render 'casino/sessions/validate_otp', status: :forbidden
+    end
+
+    complete_two_factor_sign_in(@ticket_granting_ticket)
   end
 
   private
@@ -79,8 +91,4 @@ class CASino::SessionsController < CASino::ApplicationController
     end
   end
 
-  def load_ticket_granting_ticket_from_parameter
-    @ticket_granting_ticket = find_valid_ticket_granting_ticket(params[:tgt], request.user_agent, ignore_two_factor: true)
-    redirect_to login_path if @ticket_granting_ticket.nil?
-  end
 end

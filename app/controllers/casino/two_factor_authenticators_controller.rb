@@ -8,33 +8,46 @@ class CASino::TwoFactorAuthenticatorsController < CASino::ApplicationController
   before_action :ensure_signed_in
 
   def new
+    return redirect_to sessions_path if current_user.active_two_factor_authenticator
+
     @two_factor_authenticator = current_user.two_factor_authenticators.create! secret: ROTP::Base32.random_base32
   end
 
   def create
     @two_factor_authenticator = current_user.two_factor_authenticators.where(id: params[:id]).first
-    validation_result = validate_one_time_password(params[:otp], @two_factor_authenticator)
-    case
-    when validation_result.success?
-      current_user.two_factor_authenticators.where(active: true).delete_all
-      @two_factor_authenticator.update_attribute(:active, true)
+    if @two_factor_authenticator && TwoFactorOtpVerifier.verify!(current_user, @two_factor_authenticator, params[:otp], allow_inactive: true)
+      current_user.with_lock do
+        @two_factor_authenticator.update!(active: true)
+        update_two_factor_enabled(true)
+        current_ticket_granting_ticket.update!(two_factor_verified_at: Time.current)
+      end
       flash[:notice] = I18n.t('two_factor_authenticators.successfully_activated')
       redirect_to sessions_path
-    when validation_result.error_code == 'INVALID_OTP'
+    else
       flash.now[:error] = I18n.t('two_factor_authenticators.invalid_one_time_password')
       render :new
-    else
-      flash[:error] = I18n.t('two_factor_authenticators.invalid_two_factor_authenticator')
-      redirect_to new_two_factor_authenticator_path
     end
   end
 
   def destroy
-    authenticators = current_user.two_factor_authenticators.where(id: params[:id])
-    if authenticators.any?
-      authenticators.first.destroy
+    authenticator = current_user.two_factor_authenticators.where(id: params[:id], active: true).first
+    if authenticator && TwoFactorOtpVerifier.verify!(current_user, authenticator, params[:otp])
+      current_user.with_lock do
+        authenticator.destroy!
+        update_two_factor_enabled(false)
+      end
       flash[:notice] = I18n.t('two_factor_authenticators.successfully_deleted')
+    else
+      flash[:error] = I18n.t('two_factor_authenticators.invalid_one_time_password')
     end
     redirect_to sessions_path
+  end
+
+  private
+
+  def update_two_factor_enabled(enabled)
+    attributes = (current_user.extra_attributes || {}).merge('two_factor_enabled' => enabled)
+    current_user.update!(extra_attributes: attributes)
+    User.where(email: current_user.username).update_all(two_factor_enabled: enabled)
   end
 end
