@@ -43,6 +43,7 @@ en:
     enable: "Enable"
     enabled: "Currently enabled"
     disable: "Disable"
+    disable_code: "Authenticator code to disable"
     cancel: "Cancel"
     secret: "Secret"
     code: "Confirmation code"

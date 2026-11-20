@@ -10,8 +10,8 @@ module CASino::TicketGrantingTicketProcessor
         Rails.logger.info "Ticket-granting ticket expired (Created: #{tgt.created_at})"
         tgt.destroy
         nil
-      elsif !options[:ignore_two_factor] && tgt.awaiting_two_factor_authentication?
-        Rails.logger.info 'Ticket-granting ticket is valid, but two-factor authentication is pending'
+      elsif !options[:ignore_two_factor] && !tgt.two_factor_authenticated?
+        Rails.logger.info 'Ticket-granting ticket has not completed two-factor authentication'
         nil
       elsif same_browser?(tgt.user_agent, user_agent)
         tgt.user_agent = user_agent
@@ -29,12 +29,15 @@ module CASino::TicketGrantingTicketProcessor
     user_data = authentication_result[:user_data]
     user = load_or_initialize_user(authentication_result[:authenticator], user_data[:username], user_data[:extra_attributes])
     cleanup_expired_ticket_granting_tickets(user)
-    user.ticket_granting_tickets.create!({
-      awaiting_two_factor_authentication: !user.active_two_factor_authenticator.nil?,
+    requires_two_factor = user.two_factor_enabled? || user.active_two_factor_authenticator.present?
+    ticket_attributes = {
+      awaiting_two_factor_authentication: requires_two_factor,
       user_agent: user_agent,
       user_ip: user_ip,
       long_term: !!options[:long_term]
-    })
+    }
+    ticket_attributes[:two_factor_verified_at] = Time.current unless requires_two_factor
+    user.ticket_granting_tickets.create!(ticket_attributes)
   end
 
   def load_or_initialize_user(authenticator, username, extra_attributes)

@@ -24,14 +24,14 @@ module CASino::ProxyGrantingTicketProcessor
     # TODO: does this follow redirects? CAS specification says that redirects MAY be followed (2.5.4)
     if response.success?
       pgt.save!
-      Rails.logger.debug "Proxy-granting ticket generated for service '#{service_ticket.service}': #{pgt.inspect}"
+      Rails.logger.debug 'Proxy-granting ticket generated'
       pgt
     else
       Rails.logger.warn "Proxy-granting ticket callback server responded with a bad result code '#{response.status}'. PGT will not be stored."
       nil
     end
   rescue Faraday::Error::ClientError => error
-    Rails.logger.warn "Exception while communicating with proxy-granting ticket callback server: #{error.message}"
+    Rails.logger.warn "Exception while communicating with proxy-granting ticket callback server: #{error.class}"
     nil
   end
 end
